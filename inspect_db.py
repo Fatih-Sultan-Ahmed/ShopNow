@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block title %}Order #{{ order.order_id }} - ShopNow{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1>Order #{{ order.order_id }}</h1>
+        <p class="text-muted">Last update: {{ order.order_date.strftime('%B %d, %Y at %I:%M %p') }}</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Order Items</h5>
+            </div>
+            <div class="card-body">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th>Quantity</th>
+                            <th>Price</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in order.items %}
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        {% if item.product.images %}
+                                            {% set main_image = item.product.images|selectattr('is_main', 'equalto', True)|first or item.product.images[0] %}
+                                            <img src="{{ url_for('static', filename='uploads/' + main_image.filename) }}" 
+                                                 class="me-2" style="width: 50px; height: 50px; object-fit: cover;">
+                                        {% endif %}
+                                        <div>{{ item.product.name }}</div>
+                                    </div>
+                                </td>
+                                <td>{{ item.quantity }}</td>
+                                <td>${{ "%.2f"|format(item.price_at_purchase|float) }}</td>
+                                <td>${{ "%.2f"|format((item.price_at_purchase|float * item.quantity)) }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr class="border-top">
+                            <th colspan="3">Total:</th>
+                            <th>${{ "%.2f"|format(order.total_price|float) }}</th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Order Status</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    <strong>Current Status:</strong>
+                    <span class="badge bg-{{ 'secondary' if order.status == 'Pending' else 'primary' if order.status == 'Processing' else 'warning' if order.status == 'Shipped' else 'success' if order.status == 'Delivered' else 'danger' }}" id="order-status-badge">
+                        {{ order.status }}
+                    </span>
+                </p>
+                
+                {% if current_user.is_admin %}
+                <div class="mt-3">
+                    <label for="status-select" class="form-label"><strong>Update Status:</strong></label>
+                    <select id="status-select" class="form-select" data-order-id="{{ order.order_id }}">
+                        <option value="Pending" {% if order.status == 'Pending' %}selected{% endif %}>Pending</option>
+                        <option value="Processing" {% if order.status == 'Processing' %}selected{% endif %}>Processing</option>
+                        <option value="Shipped" {% if order.status == 'Shipped' %}selected{% endif %}>Shipped</option>
+                        <option value="Delivered" {% if order.status == 'Delivered' %}selected{% endif %}>Delivered</option>
+                        <option value="Cancelled" {% if order.status == 'Cancelled' %}selected{% endif %}>Cancelled</option>
+                    </select>
+                </div>
+                {% endif %}
+                
+                <!-- Status Timeline (Simple) -->
+                <div class="mt-4">
+                    <strong>Status Timeline:</strong>
+                    <div class="mt-2">
+                        {% set statuses = ['Pending', 'Processing', 'Shipped', 'Delivered'] %}
+                        {% set current_index = statuses.index(order.status) if order.status in statuses else -1 %}
+                        {% for status in statuses %}
+                            <div class="d-flex align-items-center mb-2">
+                                <div class="me-2">
+                                    {% if current_index >= loop.index0 %}
+                                        <i class="bi bi-check-circle-fill text-success"></i>
+                                    {% else %}
+                                        <i class="bi bi-circle text-muted"></i>
+                                    {% endif %}
+                                </div>
+                                <span class="{% if order.status == status %}fw-bold{% elif current_index >= loop.index0 %}text-muted{% else %}text-muted{% endif %}">
+                                    {{ status }}
+                                </span>
+                            </div>
+                        {% endfor %}
+                        {% if order.status == 'Cancelled' %}
+                            <div class="d-flex align-items-center mb-2">
+                                <div class="me-2">
+                                    <i class="bi bi-x-circle-fill text-danger"></i>
+                                </div>
+                                <span class="fw-bold text-danger">Cancelled</span>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                {% if order.payment %}
+                    <p class="mt-3 mb-0">
+                        <strong>Payment:</strong>
+                        <span class="badge bg-{{ 'success' if order.payment.status == 'Success' else 'warning' if order.payment.status == 'Pending' else 'danger' }}">
+                            {{ order.payment.status }}
+                        </span>
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5>Shipping Address</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-0">{{ order.shipping_address|replace('\n', '<br>')|safe }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if current_user.is_admin %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const statusSelect = document.getElementById('status-select');
+    if (statusSelect) {
+        statusSelect.addEventListener('change', async function() {
+            const orderId = this.getAttribute('data-order-id');
+            const newStatus = this.value;
+            const badge = document.getElementById('order-status-badge');
+            const originalStatus = badge.textContent.trim();
+            
+            // Disable select during update
+            this.disabled = true;
+            
+            try {
+                const response = await fetch(`/admin/order/${orderId}/update-status`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    // Update badge
+                    badge.textContent = newStatus;
+                    badge.className = 'badge bg-' + getStatusColor(newStatus);
+                    
+                    // Reload page to update timeline
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500);
+                    
+                    // Show toast notification
+                    showToast(`Order #${orderId} updated to ${newStatus}`, 'success');
+                } else {
+                    // Revert select
+                    this.value = originalStatus;
+                    showToast(result.message || 'Failed to update order status', 'danger');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                // Revert select
+                this.value = originalStatus;
+                showToast('An error occurred while updating order status', 'danger');
+            } finally {
+                // Re-enable select
+                this.disabled = false;
+            }
+        });
+    }
+    
+    // Helper function to get badge color for status
+    function getStatusColor(status) {
+        const colors = {
+            'Pending': 'secondary',
+            'Processing': 'primary',
+            'Shipped': 'warning',
+            'Delivered': 'success',
+            'Cancelled': 'danger'
+        };
+        return colors[status] || 'secondary';
+    }
+    
+    // Show toast notification
+    function showToast(message, type) {
+        // Create toast container if it doesn't exist
+        let toastContainer = document.getElementById('toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.id = 'toast-container';
+            toastContainer.className = 'position-fixed top-0 end-0 p-3';
+            toastContainer.style.zIndex = '9999';
+            document.body.appendChild(toastContainer);
+        }
+        
+        // Create toast element
+        const toastId = 'toast-' + Date.now();
+        const toast = document.createElement('div');
+        toast.id = toastId;
+        toast.className = `toast align-items-center text-white bg-${type} border-0`;
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
+        toast.setAttribute('aria-atomic', 'true');
+        toast.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body">${message}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        `;
+        
+        toastContainer.appendChild(toast);
+        
+        // Initialize and show toast
+        const bsToast = new bootstrap.Toast(toast, { autohide: true, delay: 3000 });
+        bsToast.show();
+        
+        // Remove toast element after it's hidden
+        toast.addEventListener('hidden.bs.toast', function() {
+            toast.remove();
+        });
+    }
+});
+</script>
+{% endif %}
+{% endblock %}
+

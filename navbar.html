@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - ShopNow{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1>Admin Dashboard</h1>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <h5 class="card-title">Total Users</h5>
+                <h2>{{ total_users }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <h5 class="card-title">Total Orders</h5>
+                <h2>{{ total_orders }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-info">
+            <div class="card-body">
+                <h5 class="card-title">Total Sales</h5>
+                <h2>${{ "%.2f"|format(total_sales) }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-warning">
+            <div class="card-body">
+                <h5 class="card-title">Low Stock Items</h5>
+                <h2>{{ low_stock_products|length }}</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Low Stock Products -->
+{% if low_stock_products %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Low Stock Products</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Stock</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in low_stock_products %}
+                                <tr>
+                                    <td>{{ product.name }}</td>
+                                    <td><span class="badge bg-danger">{{ product.stock }}</span></td>
+                                    <td>
+                                        <a href="{{ url_for('products.admin_edit', product_id=product.product_id) }}" class="btn btn-sm btn-primary">
+                                            Edit
+                                        </a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+
+<!-- Latest Orders -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5>Latest Orders</h5>
+            </div>
+            <div class="card-body">
+                {% if latest_orders %}
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Order ID</th>
+                                <th>User</th>
+                                <th>Date</th>
+                                <th>Total</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for order in latest_orders %}
+                                <tr id="order-row-{{ order.order_id }}">
+                                    <td>#{{ order.order_id }}</td>
+                                    <td>{{ order.user.name }}</td>
+                                    <td>{{ order.order_date.strftime('%Y-%m-%d %H:%M') }}</td>
+                                    <td>${{ "%.2f"|format(order.total_price|float) }}</td>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge bg-{{ 'secondary' if order.status == 'Pending' else 'primary' if order.status == 'Processing' else 'warning' if order.status == 'Shipped' else 'success' if order.status == 'Delivered' else 'danger' }}" id="status-badge-{{ order.order_id }}">
+                                                {{ order.status }}
+                                            </span>
+                                            <select class="form-select form-select-sm status-select" 
+                                                    data-order-id="{{ order.order_id }}" 
+                                                    style="width: auto; min-width: 120px;">
+                                                <option value="Pending" {% if order.status == 'Pending' %}selected{% endif %}>Pending</option>
+                                                <option value="Processing" {% if order.status == 'Processing' %}selected{% endif %}>Processing</option>
+                                                <option value="Shipped" {% if order.status == 'Shipped' %}selected{% endif %}>Shipped</option>
+                                                <option value="Delivered" {% if order.status == 'Delivered' %}selected{% endif %}>Delivered</option>
+                                                <option value="Cancelled" {% if order.status == 'Cancelled' %}selected{% endif %}>Cancelled</option>
+                                            </select>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <a href="{{ url_for('orders.detail', order_id=order.order_id) }}" class="btn btn-sm btn-primary">
+                                            View
+                                        </a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    <p class="text-muted">No orders yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle status updates via AJAX
+    const statusSelects = document.querySelectorAll('.status-select');
+    
+    statusSelects.forEach(select => {
+        select.addEventListener('change', async function() {
+            const orderId = this.getAttribute('data-order-id');
+            const newStatus = this.value;
+            const badge = document.getElementById(`status-badge-${orderId}`);
+            const originalStatus = badge.textContent.trim();
+            
+            // Disable select during update
+            this.disabled = true;
+            
+            try {
+                const response = await fetch(`/admin/order/${orderId}/status`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    // Update badge
+                    badge.textContent = newStatus;
+                    badge.className = 'badge bg-' + getStatusColor(newStatus);
+                    
+                    // Show toast notification
+                    showToast(`Order #${orderId} updated to ${newStatus}`, 'success');
+                } else {
+                    // Revert select
+                    this.value = originalStatus;
+                    showToast(result.message || 'Failed to update order status', 'danger');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                // Revert select
+                this.value = originalStatus;
+                showToast('An error occurred while updating order status', 'danger');
+            } finally {
+                // Re-enable select
+                this.disabled = false;
+            }
+        });
+    });
+    
+    // Helper function to get badge color for status
+    function getStatusColor(status) {
+        const colors = {
+            'Pending': 'secondary',
+            'Processing': 'primary',
+            'Shipped': 'warning',
+            'Delivered': 'success',
+            'Cancelled': 'danger'
+        };
+        return colors[status] || 'secondary';
+    }
+    
+    // Show toast notification
+    function showToast(message, type) {
+        // Create toast container if it doesn't exist
+        let toastContainer = document.getElementById('toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.id = 'toast-container';
+            toastContainer.className = 'position-fixed top-0 end-0 p-3';
+            toastContainer.style.zIndex = '9999';
+            document.body.appendChild(toastContainer);
+        }
+        
+        // Create toast element
+        const toastId = 'toast-' + Date.now();
+        const toast = document.createElement('div');
+        toast.id = toastId;
+        toast.className = `toast align-items-center text-white bg-${type} border-0`;
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
+        toast.setAttribute('aria-atomic', 'true');
+        toast.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body">${message}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        `;
+        
+        toastContainer.appendChild(toast);
+        
+        // Initialize and show toast
+        const bsToast = new bootstrap.Toast(toast, { autohide: true, delay: 3000 });
+        bsToast.show();
+        
+        // Remove toast element after it's hidden
+        toast.addEventListener('hidden.bs.toast', function() {
+            toast.remove();
+        });
+    }
+});
+</script>
+{% endblock %}
+
